@@ -1,5 +1,5 @@
 """CLI entrypoint for bronze-layer extraction. Airflow will call the same
-per-carrier ingest_all() functions directly; this script is for manual runs.
+per-source ingest_all() functions directly; this script is for manual runs.
 
 Usage:
     python -m src.extract carrier_a
@@ -8,24 +8,25 @@ Usage:
 import argparse
 import sys
 
-CARRIER_INGESTORS = {
+SOURCE_INGESTORS = {
     "carrier_a": "src.bronze.carrier_a",
     "carrier_b": "src.bronze.carrier_b",
     "carrier_c": "src.bronze.carrier_c",
+    "parcel_events": "src.bronze.parcel_events",
 }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run bronze-layer extraction for one carrier.")
-    parser.add_argument("carrier", choices=sorted(CARRIER_INGESTORS))
+    parser = argparse.ArgumentParser(description="Run bronze-layer extraction for one source.")
+    parser.add_argument("source", choices=sorted(SOURCE_INGESTORS))
     args = parser.parse_args()
 
-    module = __import__(CARRIER_INGESTORS[args.carrier], fromlist=["ingest_all"])
+    module = __import__(SOURCE_INGESTORS[args.source], fromlist=["ingest_all"])
     results = module.ingest_all()
 
     total_loaded = sum(r.rows_loaded for r in results)
     total_quarantined = sum(r.rows_quarantined for r in results)
-    print(f"{args.carrier}: {len(results)} files, {total_loaded} rows loaded, {total_quarantined} quarantined")
+    print(f"{args.source}: {len(results)} files, {total_loaded} rows loaded, {total_quarantined} quarantined")
     if total_quarantined:
         for r in results:
             if r.rows_quarantined:
