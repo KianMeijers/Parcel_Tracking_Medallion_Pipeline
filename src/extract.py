@@ -10,6 +10,8 @@ import sys
 
 CARRIER_INGESTORS = {
     "carrier_a": "src.bronze.carrier_a",
+    "carrier_b": "src.bronze.carrier_b",
+    "carrier_c": "src.bronze.carrier_c",
 }
 
 
