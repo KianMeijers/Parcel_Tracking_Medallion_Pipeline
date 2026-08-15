@@ -1,9 +1,9 @@
-"""Bronze-layer ingestion for carrier_a (PostNL-style) tracking events.
+"""Bronze-layer ingestion for carrier_a tracking events.
 
 Source: one gzipped JSON-lines file per day under data/raw/carrier_a/, e.g.
 carrier_a_20260501.json.gz. The filename only reflects when the file was
 dumped, not when the events inside happened, so it is used purely as a
-lineage / idempotency key - never as an event date.
+lineage / idempotency key.
 
 Design choices:
 - Fields are kept close to their raw shape (e.g. `ts` stays a string, not a
@@ -98,8 +98,8 @@ def _parse_line(line: str) -> tuple[dict | None, str | None]:
         return None, str(exc)
 
 
-def _replace_source_file(table: Table, schema: Schema, source_file: str, rows: list[dict]) -> None:
-    arrow_table = pa.Table.from_pylist(rows, schema=schema.as_arrow())
+def _replace_source_file(table: Table, source_file: str, rows: list[dict]) -> None:
+    arrow_table = pa.Table.from_pylist(rows, schema=table.schema().as_arrow())
     table.overwrite(arrow_table, overwrite_filter=f"source_file == '{source_file}'")
 
 
@@ -149,8 +149,8 @@ def ingest_file(catalog: Catalog, path: Path) -> IngestResult:
                 }
             )
 
-    _replace_source_file(table, RECORD_SCHEMA, source_file, good_rows)
-    _replace_source_file(quarantine_table, QUARANTINE_SCHEMA, source_file, bad_rows)
+    _replace_source_file(table, source_file, good_rows)
+    _replace_source_file(quarantine_table, source_file, bad_rows)
 
     return IngestResult(source_file=source_file, rows_loaded=len(good_rows), rows_quarantined=len(bad_rows))
 
