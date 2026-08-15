@@ -8,7 +8,12 @@ medallion layout that already exists on disk.
 
 from pathlib import Path
 
+import pyarrow as pa
+from pyiceberg.catalog import Catalog
 from pyiceberg.catalog.sql import SqlCatalog
+from pyiceberg.partitioning import PartitionSpec
+from pyiceberg.schema import Schema
+from pyiceberg.table import Table
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
@@ -37,3 +42,24 @@ def get_catalog(warehouse_dir: Path | None = None) -> SqlCatalog:
 def ensure_namespace(catalog: SqlCatalog, namespace: str) -> None:
     if namespace not in {ns[0] for ns in catalog.list_namespaces()}:
         catalog.create_namespace(namespace)
+
+
+def get_or_create_table(catalog: Catalog, identifier: str, schema: Schema, partition_spec: PartitionSpec) -> Table:
+    namespace = identifier.split(".")[0]
+    ensure_namespace(catalog, namespace)
+    if catalog.table_exists(identifier):
+        return catalog.load_table(identifier)
+    return catalog.create_table(identifier, schema=schema, partition_spec=partition_spec)
+
+
+def overwrite_table(table: Table, rows: list[dict], overwrite_filter: str | None = None) -> None:
+    """Write `rows` into `table`, replacing whatever the filter matches (or
+    the whole table, if no filter is given). Builds the Arrow table from the
+    table's own committed schema rather than a module-level Schema constant,
+    so struct/list fields convert the way Iceberg actually stored them.
+    """
+    arrow_table = pa.Table.from_pylist(rows, schema=table.schema().as_arrow())
+    if overwrite_filter is None:
+        table.overwrite(arrow_table)
+    else:
+        table.overwrite(arrow_table, overwrite_filter=overwrite_filter)
