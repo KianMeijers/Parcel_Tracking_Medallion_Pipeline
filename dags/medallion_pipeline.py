@@ -4,6 +4,11 @@ Sequencing and retries only - no data crosses task boundaries via XCom. Each
 task calls into src/{bronze,silver,gold}, which reads its inputs from and
 writes its outputs to Iceberg tables directly, so the tables themselves are
 the hand-off between stages.
+
+A data-quality gate task sits after each layer (src/quality.py). Each gate
+queries the tables that layer just wrote and raises if an anomaly threshold
+is breached; that failure fails the gate task, which blocks every
+downstream task so a bad batch never reaches the next layer.
 """
 
 import sys
@@ -20,7 +25,7 @@ from airflow.sdk import dag, task, task_group
 
 @dag(
     dag_id="medallion_pipeline",
-    schedule="@daily",
+    schedule=None, # Set @daily for daily updates
     start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     default_args={"retries": 2, "retry_delay": pendulum.duration(minutes=5)},
@@ -55,8 +60,14 @@ def medallion_pipeline():
 
         return carrier_a(), carrier_b(), carrier_c(), parcel_events()
 
+    @task
+    def bronze_quality_gate():
+        from src.quality import run_bronze_gate
+
+        run_bronze_gate()
+
     @task_group(group_id="silver")
-    def silver(carrier_a_t, carrier_b_t, carrier_c_t, bronze_parcel_events_t):
+    def silver():
         @task
         def tracking_events():
             from src.silver.tracking_events import run
@@ -69,16 +80,16 @@ def medallion_pipeline():
 
             run()
 
-        tracking_events_t = tracking_events()
-        parcel_events_t = parcel_events()
+        return tracking_events(), parcel_events()
 
-        [carrier_a_t, carrier_b_t, carrier_c_t] >> tracking_events_t
-        bronze_parcel_events_t >> parcel_events_t
+    @task
+    def silver_quality_gate():
+        from src.quality import run_silver_gate
 
-        return tracking_events_t, parcel_events_t
+        run_silver_gate()
 
     @task_group(group_id="gold")
-    def gold(tracking_events_t, silver_parcel_events_t):
+    def gold():
         @task
         def dimensions():
             from src.gold.dimensions import run
@@ -93,15 +104,27 @@ def medallion_pipeline():
 
         dimensions_t = dimensions()
         shipments_t = shipments()
-
         dimensions_t >> shipments_t
-        [tracking_events_t, silver_parcel_events_t] >> shipments_t
+        return shipments_t
 
-    bronze_carrier_a, bronze_carrier_b, bronze_carrier_c, bronze_parcel_events = bronze()
-    silver_tracking_events, silver_parcel_events = silver(
-        bronze_carrier_a, bronze_carrier_b, bronze_carrier_c, bronze_parcel_events
-    )
-    gold(silver_tracking_events, silver_parcel_events)
+    @task
+    def gold_quality_gate():
+        from src.quality import run_gold_gate
+
+        run_gold_gate()
+
+    bronze_tasks = list(bronze())
+    bronze_gate = bronze_quality_gate()
+    bronze_tasks >> bronze_gate
+
+    silver_tasks = list(silver())
+    bronze_gate >> silver_tasks
+    silver_gate = silver_quality_gate()
+    silver_tasks >> silver_gate
+
+    gold_shipments = gold()
+    silver_gate >> gold_shipments
+    gold_shipments >> gold_quality_gate()
 
 
 medallion_pipeline()
