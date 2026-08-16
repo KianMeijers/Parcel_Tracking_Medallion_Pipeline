@@ -40,8 +40,23 @@ class IngestResult:
     rows_quarantined: int
 
 
-def iter_raw_files(raw_dir: Path, glob_pattern: str) -> Iterator[Path]:
-    return iter(sorted(raw_dir.glob(glob_pattern)))
+def already_ingested_files(catalog: Catalog, table_identifier: str, quarantine_identifier: str) -> set[str]:
+    """Source filenames already committed to `table_identifier` or its
+    quarantine sibling - safe to skip on rerun, since each file's rows are
+    the complete, atomically-overwritten output of that exact file's
+    content.
+    """
+    known: set[str] = set()
+    for identifier in (table_identifier, quarantine_identifier):
+        if not catalog.table_exists(identifier):
+            continue
+        for row in catalog.load_table(identifier).inspect.partitions().to_pylist():
+            known.add(row["partition"]["source_file"])
+    return known
+
+
+def iter_raw_files(raw_dir: Path, glob_pattern: str, skip: set[str] = frozenset()) -> Iterator[Path]:
+    return iter(p for p in sorted(raw_dir.glob(glob_pattern)) if p.name not in skip)
 
 
 def _parse_json_line(line: str) -> tuple[dict | None, str | None]:
@@ -62,8 +77,6 @@ def ingest_jsonl_gz_file(
 ) -> IngestResult:
     """Parse `path` line by line, map each JSON object to a row via
     `row_from_json`, and quarantine lines that fail to parse as JSON at all
-    (a structural problem - semantic validation is a silver-layer concern).
-    Idempotent: replaces this file's prior slice of both tables atomically.
     """
     table = get_or_create_table(catalog, table_identifier, record_schema, partition_spec)
     quarantine_table = get_or_create_table(

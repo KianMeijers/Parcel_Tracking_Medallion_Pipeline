@@ -36,7 +36,7 @@ from pyiceberg.transforms import IdentityTransform
 from pyiceberg.types import IntegerType, LongType, NestedField, StringType, TimestampType
 
 from src.common.catalog import get_catalog
-from src.common.ingestion import IngestResult, ingest_jsonl_gz_file, iter_raw_files
+from src.common.ingestion import IngestResult, already_ingested_files, ingest_jsonl_gz_file, iter_raw_files
 
 RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "carrier_c"
 
@@ -82,6 +82,7 @@ def ingest_file(catalog: Catalog, path: Path) -> IngestResult:
     )
 
 
-def ingest_all(raw_dir: Path = RAW_DIR) -> list[IngestResult]:
+def ingest_all(raw_dir: Path = RAW_DIR, force: bool = False) -> list[IngestResult]:
     catalog = get_catalog()
-    return [ingest_file(catalog, path) for path in iter_raw_files(raw_dir, "*.json.gz")]
+    skip = set() if force else already_ingested_files(catalog, TABLE_IDENTIFIER, QUARANTINE_TABLE_IDENTIFIER)
+    return [ingest_file(catalog, path) for path in iter_raw_files(raw_dir, "*.json.gz", skip)]

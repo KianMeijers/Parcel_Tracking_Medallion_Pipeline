@@ -19,10 +19,13 @@ SOURCE_INGESTORS = {
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run bronze-layer extraction for one source.")
     parser.add_argument("source", choices=sorted(SOURCE_INGESTORS))
+    parser.add_argument(
+        "--force", action="store_true", help="Reprocess every raw file, including ones already ingested."
+    )
     args = parser.parse_args()
 
     module = __import__(SOURCE_INGESTORS[args.source], fromlist=["ingest_all"])
-    results = module.ingest_all()
+    results = module.ingest_all(force=args.force)
 
     total_loaded = sum(r.rows_loaded for r in results)
     total_quarantined = sum(r.rows_quarantined for r in results)
