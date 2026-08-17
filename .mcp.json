@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "gold-query": {
+      "type": "stdio",
+      "command": "wsl.exe",
+      "args": [
+        "--cd",
+        "/mnt/c/Users/kianm/VSProjects/Sendcloud_Trial_Case",
+        "--",
+        "wsl-venv/bin/python",
+        "-m",
+        "agent.server"
+      ]
+    }
+  }
+}

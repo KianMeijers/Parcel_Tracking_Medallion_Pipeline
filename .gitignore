@@ -1,8 +1,10 @@
 .env
 venv
+wsl-venv
 
-
+.airflow
 *.json*
+!.mcp.json
 __pycache__/
 data/bronze/
 data/silver/
