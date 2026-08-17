@@ -25,7 +25,7 @@ whole-dataset answers instead of relying on raw row dumps.
 | weight_kg | double | yes | |
 | facility_code | string | yes | facility of the latest carrier status |
 | sla_hours | int | yes | carrier's SLA for this parcel, from `dim_carriers` |
-| transit_hours | double | yes | `delivered_at - accepted_at`, in hours |
+| transit_hours | double | yes | `delivered_at - handed_over_at`, in hours |
 | is_delivered | bool | no | `delivered_at IS NOT NULL` |
 | is_on_time | bool | yes | `transit_hours <= sla_hours` |
 | is_lost | bool | yes | `latest_carrier_status = 'LOST'` |
@@ -34,23 +34,26 @@ whole-dataset answers instead of relying on raw row dumps.
 
 ### Semantic caveats — read before writing transit-time or on-time queries
 
-- **"Shipped" is not "accepted."** `handed_over_at` is the org's own dispatch
-  record; `accepted_at` is the carrier's first scan. They are different
-  moments and can be far apart. "How many parcels did org X ship" should
-  count rows by `handed_over_at` (or just `created_at`/row count), not by
-  `accepted_at`.
-- **Transit time and on-time status are measured from carrier possession,
-  not from hand-over.** `transit_hours` and `is_on_time` are computed as
-  `accepted_at -> delivered_at`, matching the "transit time = from carrier
-  possession to delivery" definition this project uses.
+- **"Shipped" is "accepted" — `handed_over_at` is carrier possession.**
+  Confirmed with the business: the carrier physically takes the parcel at
+  our own hand-over event, not at whatever point their own scan happens to
+  log it (their tracking isn't 100% reliable/immediate — hand-over to first
+  carrier scan lags 4-24h, ~9h on average). So `transit_hours` and
+  `is_on_time` are computed as `handed_over_at -> delivered_at`, matching
+  the "transit time = from carrier possession to delivery" definition this
+  project uses. `accepted_at` (the carrier's own first scan) is a separate,
+  informational column — don't use it for transit-time math, and don't
+  confuse it with `handed_over_at` when answering "how many did org X ship"
+  (count by `handed_over_at`/`created_at`, not `accepted_at`).
 - **Nulls here are real, unresolved shipments, not bad data.** About 3,600
   of 500,000 parcels have a hand-over record but never appear in the
-  carrier's own tracking feed (handed over, not yet or never scanned). For
-  those rows `accepted_at`, `delivered_at`, `transit_hours`, and
-  `is_on_time` are `NULL`. Still count them for shipment-volume questions;
-  exclude/handle the nulls explicitly for on-time-rate questions (e.g.
-  `WHERE is_on_time IS NOT NULL` when computing a rate, so unresolved
-  parcels don't get miscounted as late or silently skew the denominator).
+  carrier's own tracking feed at all (handed over, not yet or never
+  scanned) — `delivered_at` is never populated for these, so
+  `transit_hours`/`is_on_time` stay `NULL` regardless of `accepted_at`.
+  Still count them for shipment-volume questions; exclude/handle the nulls
+  explicitly for on-time-rate questions (e.g. `WHERE is_on_time IS NOT NULL`
+  when computing a rate, so unresolved parcels don't get miscounted as late
+  or silently skew the denominator).
 - **`is_on_time IS NULL` does not mean "no problem" — it also covers lost
   and returned parcels.** A parcel that's lost or returned never gets
   delivered, so it never resolves to on-time or late; filtering those rows

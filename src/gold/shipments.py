@@ -4,14 +4,23 @@
 
 "Shipped" = parcel_handed_over (parcel_events - the org's own dispatch
 record), which is not the same moment as "accepted" = the carrier's first
-ACCEPTED scan (tracking_events). 
-!This has to be confirmed with the business.!
+ACCEPTED scan (tracking_events).
+
+Confirmed with the business: the carrier physically takes possession of the
+parcel at our handover event, not at whatever point their own scan happens
+to log it - their tracking isn't 100% reliable/immediate (own analysis found
+a 4-24h gap, ~9h mean, between handed_over_at and the carrier's first
+ACCEPTED scan). So transit_hours/is_on_time are measured handed_over_at ->
+delivered_at, not accepted_at -> delivered_at. accepted_at is kept as a
+column (it's a real, useful carrier-possession signal on its own) but no
+longer drives the transit-time calculation.
 
 3,603 of 500,000 real parcels have a parcel_events record but never appear
-in tracking_events (handed over, not yet/never scanned). Those rows keep
-accepted_at/delivered_at/transit_hours/is_on_time as null rather than being
-dropped - still real shipments for a "how many did org X ship" count, just
-unresolved for "was it on time".
+in tracking_events (handed over, not yet/never scanned) - delivered_at is
+never populated for these regardless of the transit-time basis, so
+transit_hours/is_on_time stay null rather than the rows being dropped -
+still real shipments for a "how many did org X ship" count, just unresolved
+for "was it on time".
 
 Checked against the real silver tables: no parcel has
 more than one ACCEPTED or DELIVERED event, weight is identical across every
@@ -143,12 +152,13 @@ def build(catalog: Catalog) -> TransformResult:
         accepted_at = ce.get("accepted_at")
         delivered_at = ce.get("delivered_at")
         latest_status = ce.get("latest_status")
+        handed_over_at = parcel["handed_over_at"]
         sla_hours = sla_by_carrier.get(parcel["carrier_code"])
 
         transit_hours = None
         is_on_time = None
-        if accepted_at is not None and delivered_at is not None:
-            transit_hours = (delivered_at - accepted_at).total_seconds() / 3600
+        if handed_over_at is not None and delivered_at is not None:
+            transit_hours = (delivered_at - handed_over_at).total_seconds() / 3600
             if sla_hours is not None:
                 is_on_time = transit_hours <= sla_hours
 

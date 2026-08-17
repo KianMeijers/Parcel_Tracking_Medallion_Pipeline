@@ -70,7 +70,7 @@ def catalog(tmp_path):
     return get_catalog(warehouse_dir=tmp_path / "warehouse")
 
 
-def test_computes_transit_hours_and_on_time_flag_from_carrier_possession(catalog, tmp_path):
+def test_computes_transit_hours_and_on_time_flag_from_handover(catalog, tmp_path):
     _write_reference_carriers(catalog, tmp_path)
     _seed_silver(
         catalog,
@@ -79,7 +79,7 @@ def test_computes_transit_hours_and_on_time_flag_from_carrier_possession(catalog
             _parcel_event("e2", "parcel_handed_over", datetime(2026, 7, 1, 8, 30, tzinfo=timezone.utc), 2),
         ],
         tracking_events=[
-            # accepted 1h *after* handover - transit_hours must use this, not handed_over_at
+            # accepted 30min *after* handover - transit_hours must use handed_over_at, not this
             _tracking_event("ACCEPTED", datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc), 1),
             _tracking_event("DELIVERED", datetime(2026, 7, 2, 8, 0, tzinfo=timezone.utc), 2),
         ],
@@ -89,10 +89,10 @@ def test_computes_transit_hours_and_on_time_flag_from_carrier_possession(catalog
 
     assert result.rows_loaded == 1
     row = catalog.load_table("gold.shipments").scan().to_arrow().to_pylist()[0]
-    assert row["accepted_at"] == datetime(2026, 7, 1, 9, 0)  # TimestampType round-trips as naive UTC
-    assert row["transit_hours"] == pytest.approx(23.0)
+    assert row["accepted_at"] == datetime(2026, 7, 1, 9, 0)  # kept as a column, no longer drives transit_hours
+    assert row["transit_hours"] == pytest.approx(23.5)  # 08:30 handover -> 08:00 next day delivery
     assert row["is_delivered"] is True
-    assert row["is_on_time"] is True  # 23h <= 24h SLA
+    assert row["is_on_time"] is True  # 23.5h <= 24h SLA
     assert row["weight_kg"] == pytest.approx(2.5)
 
 
@@ -100,10 +100,13 @@ def test_flags_late_delivery_as_not_on_time(catalog, tmp_path):
     _write_reference_carriers(catalog, tmp_path)
     _seed_silver(
         catalog,
-        parcel_events=[_parcel_event("e1", "parcel_created", datetime(2026, 7, 1, 8, 0, tzinfo=timezone.utc), 1)],
+        parcel_events=[
+            _parcel_event("e1", "parcel_created", datetime(2026, 7, 1, 8, 0, tzinfo=timezone.utc), 1),
+            _parcel_event("e2", "parcel_handed_over", datetime(2026, 7, 1, 8, 30, tzinfo=timezone.utc), 2),
+        ],
         tracking_events=[
             _tracking_event("ACCEPTED", datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc), 1),
-            _tracking_event("DELIVERED", datetime(2026, 7, 3, 0, 0, tzinfo=timezone.utc), 2),  # 39h later, SLA is 24h
+            _tracking_event("DELIVERED", datetime(2026, 7, 3, 0, 0, tzinfo=timezone.utc), 2),  # 39.5h later, SLA is 24h
         ],
     )
 
@@ -111,6 +114,26 @@ def test_flags_late_delivery_as_not_on_time(catalog, tmp_path):
 
     row = catalog.load_table("gold.shipments").scan().to_arrow().to_pylist()[0]
     assert row["is_on_time"] is False
+
+
+def test_transit_hours_resolves_from_handover_even_without_an_accepted_scan(catalog, tmp_path):
+    _write_reference_carriers(catalog, tmp_path)
+    _seed_silver(
+        catalog,
+        parcel_events=[
+            _parcel_event("e1", "parcel_created", datetime(2026, 7, 1, 8, 0, tzinfo=timezone.utc), 1),
+            _parcel_event("e2", "parcel_handed_over", datetime(2026, 7, 1, 8, 30, tzinfo=timezone.utc), 2),
+        ],
+        # no ACCEPTED event at all - carrier's tracking dropped it, but DELIVERED still arrived
+        tracking_events=[_tracking_event("DELIVERED", datetime(2026, 7, 2, 8, 0, tzinfo=timezone.utc), 1)],
+    )
+
+    build(catalog)
+
+    row = catalog.load_table("gold.shipments").scan().to_arrow().to_pylist()[0]
+    assert row["accepted_at"] is None
+    assert row["transit_hours"] == pytest.approx(23.5)
+    assert row["is_on_time"] is True
 
 
 def test_parcel_never_scanned_by_carrier_still_counts_as_shipped(catalog, tmp_path):

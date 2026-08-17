@@ -90,7 +90,7 @@ def check_gold_shipments(catalog: Catalog) -> dict:
     negative_transit = [r["parcel_id"] for r in rows if r["transit_hours"] is not None and r["transit_hours"] < 0]
     if negative_transit:
         problems.append(
-            f"{len(negative_transit)} rows with negative transit_hours (delivered before accepted), "
+            f"{len(negative_transit)} rows with negative transit_hours (delivered before handover), "
             f"e.g. parcel_id={negative_transit[0]}"
         )
 
