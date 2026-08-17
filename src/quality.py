@@ -94,6 +94,15 @@ def check_gold_shipments(catalog: Catalog) -> dict:
             f"e.g. parcel_id={negative_transit[0]}"
         )
 
+    contradictory_terminal = [
+        r["parcel_id"] for r in rows if r["is_delivered"] and (r.get("is_lost") or r.get("is_returned"))
+    ]
+    if contradictory_terminal:
+        problems.append(
+            f"{len(contradictory_terminal)} rows flagged both delivered and lost/returned, "
+            f"e.g. parcel_id={contradictory_terminal[0]}"
+        )
+
     if problems:
         raise DataQualityError(f"{GOLD_SHIPMENTS_TABLE}: " + "; ".join(problems))
 

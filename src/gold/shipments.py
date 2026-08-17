@@ -52,6 +52,8 @@ RECORD_SCHEMA = Schema(
     NestedField(17, "is_delivered", BooleanType(), required=True),
     NestedField(18, "is_on_time", BooleanType(), required=False),
     NestedField(19, "_gold_loaded_at", TimestampType(), required=True),
+    NestedField(20, "is_lost", BooleanType(), required=False),
+    NestedField(21, "is_returned", BooleanType(), required=False),
 )
 RECORD_PARTITION_SPEC = PartitionSpec(
     PartitionField(source_id=9, field_id=1000, transform=MonthTransform(), name="handed_over_month")
@@ -140,6 +142,7 @@ def build(catalog: Catalog) -> TransformResult:
         ce = carrier_events.get((parcel["carrier_code"], parcel["tracking_number"]), {})
         accepted_at = ce.get("accepted_at")
         delivered_at = ce.get("delivered_at")
+        latest_status = ce.get("latest_status")
         sla_hours = sla_by_carrier.get(parcel["carrier_code"])
 
         transit_hours = None
@@ -154,7 +157,7 @@ def build(catalog: Catalog) -> TransformResult:
                 **parcel,
                 "accepted_at": accepted_at,
                 "delivered_at": delivered_at,
-                "latest_carrier_status": ce.get("latest_status"),
+                "latest_carrier_status": latest_status,
                 "weight_kg": ce.get("weight_kg"),
                 "facility_code": ce.get("facility_code"),
                 "sla_hours": sla_hours,
@@ -162,6 +165,8 @@ def build(catalog: Catalog) -> TransformResult:
                 "is_delivered": delivered_at is not None,
                 "is_on_time": is_on_time,
                 "_gold_loaded_at": loaded_at,
+                "is_lost": latest_status == "LOST",
+                "is_returned": latest_status == "RETURNED",
             }
         )
 

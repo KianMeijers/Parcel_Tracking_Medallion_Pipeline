@@ -70,7 +70,9 @@ def test_silver_quarantine_rates_fail_over_threshold(catalog):
         check_silver_quarantine_rates(catalog)
 
 
-def _shipment_row(parcel_id: int, transit_hours: float | None = None) -> dict:
+def _shipment_row(
+    parcel_id: int, transit_hours: float | None = None, is_lost: bool = False, is_returned: bool = False
+) -> dict:
     now = datetime.now(timezone.utc)
     return {
         "parcel_id": parcel_id,
@@ -92,6 +94,8 @@ def _shipment_row(parcel_id: int, transit_hours: float | None = None) -> dict:
         "is_delivered": True,
         "is_on_time": None,
         "_gold_loaded_at": now,
+        "is_lost": is_lost,
+        "is_returned": is_returned,
     }
 
 
@@ -117,6 +121,13 @@ def test_gold_shipments_catches_negative_transit_hours(catalog):
     _seed_shipments(catalog, [_shipment_row(1, transit_hours=-5.0)])
 
     with pytest.raises(DataQualityError, match="negative transit_hours"):
+        check_gold_shipments(catalog)
+
+
+def test_gold_shipments_catches_delivered_and_lost_contradiction(catalog):
+    _seed_shipments(catalog, [_shipment_row(1, is_lost=True)])
+
+    with pytest.raises(DataQualityError, match="delivered and lost/returned"):
         check_gold_shipments(catalog)
 
 

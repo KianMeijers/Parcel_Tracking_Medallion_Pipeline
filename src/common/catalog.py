@@ -48,7 +48,11 @@ def get_or_create_table(catalog: Catalog, identifier: str, schema: Schema, parti
     namespace = identifier.split(".")[0]
     ensure_namespace(catalog, namespace)
     if catalog.table_exists(identifier):
-        return catalog.load_table(identifier)
+        table = catalog.load_table(identifier)
+        existing_names = {f.name for f in table.schema().fields}
+        if any(f.name not in existing_names for f in schema.fields):
+            table.update_schema().union_by_name(schema).commit()
+        return table
     return catalog.create_table(identifier, schema=schema, partition_spec=partition_spec)
 
 

@@ -135,6 +135,46 @@ def test_parcel_never_scanned_by_carrier_still_counts_as_shipped(catalog, tmp_pa
     assert row["is_on_time"] is None
 
 
+def test_flags_lost_parcel_without_resolving_transit_time(catalog, tmp_path):
+    _write_reference_carriers(catalog, tmp_path)
+    _seed_silver(
+        catalog,
+        parcel_events=[_parcel_event("e1", "parcel_created", datetime(2026, 7, 1, 8, 0, tzinfo=timezone.utc), 1)],
+        tracking_events=[
+            _tracking_event("ACCEPTED", datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc), 1),
+            _tracking_event("LOST", datetime(2026, 7, 3, 0, 0, tzinfo=timezone.utc), 2),
+        ],
+    )
+
+    build(catalog)
+
+    row = catalog.load_table("gold.shipments").scan().to_arrow().to_pylist()[0]
+    assert row["is_lost"] is True
+    assert row["is_returned"] is False
+    assert row["is_delivered"] is False
+    assert row["transit_hours"] is None
+    assert row["is_on_time"] is None
+
+
+def test_flags_returned_parcel(catalog, tmp_path):
+    _write_reference_carriers(catalog, tmp_path)
+    _seed_silver(
+        catalog,
+        parcel_events=[_parcel_event("e1", "parcel_created", datetime(2026, 7, 1, 8, 0, tzinfo=timezone.utc), 1)],
+        tracking_events=[
+            _tracking_event("ACCEPTED", datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc), 1),
+            _tracking_event("RETURNED", datetime(2026, 7, 3, 0, 0, tzinfo=timezone.utc), 2),
+        ],
+    )
+
+    build(catalog)
+
+    row = catalog.load_table("gold.shipments").scan().to_arrow().to_pylist()[0]
+    assert row["is_returned"] is True
+    assert row["is_lost"] is False
+    assert row["is_delivered"] is False
+
+
 def test_rerunning_the_transform_does_not_duplicate_rows(catalog, tmp_path):
     _write_reference_carriers(catalog, tmp_path)
     _seed_silver(
