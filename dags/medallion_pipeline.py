@@ -20,7 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import pendulum
 
-from airflow.sdk import dag, task, task_group
+from airflow.sdk import Param, dag, get_current_context, task, task_group
 
 
 @dag(
@@ -30,6 +30,16 @@ from airflow.sdk import dag, task, task_group
     catchup=False,
     default_args={"retries": 2, "retry_delay": pendulum.duration(minutes=5)},
     tags=["bronze", "silver", "gold"],
+    params={
+        "force_bronze": Param(
+            False,
+            type="boolean",
+            description=(
+                "Reprocess every raw bronze file, including ones already ingested, "
+                "instead of skipping files already committed to bronze."
+            ),
+        )
+    },
 )
 def medallion_pipeline():
     @task_group(group_id="bronze")
@@ -38,25 +48,25 @@ def medallion_pipeline():
         def carrier_a():
             from src.bronze.carrier_a import ingest_all
 
-            ingest_all()
+            ingest_all(force=get_current_context()["params"]["force_bronze"])
 
         @task
         def carrier_b():
             from src.bronze.carrier_b import ingest_all
 
-            ingest_all()
+            ingest_all(force=get_current_context()["params"]["force_bronze"])
 
         @task
         def carrier_c():
             from src.bronze.carrier_c import ingest_all
 
-            ingest_all()
+            ingest_all(force=get_current_context()["params"]["force_bronze"])
 
         @task
         def parcel_events():
             from src.bronze.parcel_events import ingest_all
 
-            ingest_all()
+            ingest_all(force=get_current_context()["params"]["force_bronze"])
 
         return carrier_a(), carrier_b(), carrier_c(), parcel_events()
 
